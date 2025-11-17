@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # allow pushing using the GITHUB_TOKEN
+  contents: write
   actions: read
 
 jobs:
@@ -25,35 +25,49 @@ jobs:
 
       - name: Add upstream remote & sync fork
         run: |
-          # upstream is the original MicrosoftDocs repo
           git remote add upstream https://github.com/MicrosoftDocs/PowerShell-Docs.git || true
           git fetch upstream --prune
           git checkout main
           if git merge --ff-only upstream/main; then
             echo "Fast-forwarded to upstream/main"
-            # push back to your fork using the built-in GITHUB_TOKEN
+            # push merged changes back to your fork using the default token
             git push origin HEAD:main || echo "Push skipped or failed (check permissions)"
           else
-            echo "No fast-forward merge available. Continuing checks on current branch."
+            echo "No fast-forward merge available. Continuing with current branch."
           fi
+
+      - name: Ensure reports directory exists
+        run: mkdir -p reports
 
       - name: Run Lychee - Broken Links Only
         uses: lycheeverse/lychee-action@v2
         id: lychee-broken
         continue-on-error: true
         with:
-          args: --verbose --no-progress './**/*.md' --exclude-mail --output reports/lychee-broken-report.txt
+          # remove any '--output' from args when specifying 'output' here
+          args: --verbose --no-progress './**/*.md' --exclude-mail
+          output: reports/lychee-broken-report.txt
+          format: markdown
+          fail: 'true'
+          failifempty: 'true'
+          jobsummary: 'true'
+          checkbox: 'true'
 
       - name: Run Lychee - Redirects as Errors
         uses: lycheeverse/lychee-action@v2
         id: lychee-redirects
         continue-on-error: true
         with:
-          args: --verbose --max-redirects 0 --no-progress './**/*.md' --exclude-mail --output reports/lychee-redirect-report.txt
+          args: --verbose --max-redirects 0 --no-progress './**/*.md' --exclude-mail
+          output: reports/lychee-redirect-report.txt
+          format: markdown
+          fail: 'true'
+          failifempty: 'true'
+          jobsummary: 'true'
+          checkbox: 'true'
 
-      - name: Ensure reports directory exists
+      - name: Ensure report files exist
         run: |
-          mkdir -p reports
           for f in reports/lychee-broken-report.txt reports/lychee-redirect-report.txt; do
             if [ ! -f "$f" ]; then
               echo "No issues found." > "$f"
