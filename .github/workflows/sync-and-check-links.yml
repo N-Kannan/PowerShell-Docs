@@ -1,0 +1,73 @@
+name: 🔄 Sync Fork & Check Links & Save Reports
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Every Monday at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # allow pushing using the GITHUB_TOKEN
+  actions: read
+
+jobs:
+  sync-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "N-Kannan"
+          git config user.email "iamnkannan@gmail.com"
+
+      - name: Add upstream remote & sync fork
+        run: |
+          # upstream is the original MicrosoftDocs repo
+          git remote add upstream https://github.com/MicrosoftDocs/PowerShell-Docs.git || true
+          git fetch upstream --prune
+          git checkout main
+          if git merge --ff-only upstream/main; then
+            echo "Fast-forwarded to upstream/main"
+            # push back to your fork using the built-in GITHUB_TOKEN
+            git push origin HEAD:main || echo "Push skipped or failed (check permissions)"
+          else
+            echo "No fast-forward merge available. Continuing checks on current branch."
+          fi
+
+      - name: Run Lychee - Broken Links Only
+        uses: lycheeverse/lychee-action@v2
+        id: lychee-broken
+        continue-on-error: true
+        with:
+          args: --verbose --no-progress './**/*.md' --exclude-mail --output reports/lychee-broken-report.txt
+
+      - name: Run Lychee - Redirects as Errors
+        uses: lycheeverse/lychee-action@v2
+        id: lychee-redirects
+        continue-on-error: true
+        with:
+          args: --verbose --max-redirects 0 --no-progress './**/*.md' --exclude-mail --output reports/lychee-redirect-report.txt
+
+      - name: Ensure reports directory exists
+        run: |
+          mkdir -p reports
+          for f in reports/lychee-broken-report.txt reports/lychee-redirect-report.txt; do
+            if [ ! -f "$f" ]; then
+              echo "No issues found." > "$f"
+            fi
+          done
+
+      - name: Append signature to reports
+        run: |
+          for f in reports/*.txt; do
+            echo -e "\n---\n\n🙏 **Thanks,**\n\n**Kannan.N**\nSr Trainer\n[https://www.linkedin.com/in/iamnkannan](https://www.linkedin.com/in/iamnkannan)" >> "$f"
+          done
+
+      - name: Upload reports as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-check-reports
+          path: reports/*.txt
