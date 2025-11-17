@@ -43,7 +43,6 @@ jobs:
         id: lychee-broken
         continue-on-error: true
         with:
-          # removed unsupported --exclude-mail flag
           args: --verbose --no-progress './**/*.md'
           output: reports/lychee-broken-report.txt
           format: markdown
@@ -73,14 +72,81 @@ jobs:
             fi
           done
 
+      - name: Convert reports to CSV (code,url,message,source)
+        run: |
+          set -euo pipefail
+          OUT=reports/lychee-issues.csv
+          echo '"code","url","message","source"' > "$OUT"
+
+          # helper function: parse a report file
+          parse_file() {
+            local file="$1"
+            local source_label="$2"
+            # Find lines starting with '* ' (lychee report failure lines), normalize CRLF, then parse
+            grep -E '^\* ' "$file" || true
+            grep -E '^\* ' "$file" \
+              | sed 's/^\* //' \
+              | while IFS= read -r line; do
+                  # split into left (code+url) and right (message) on ' | '
+                  left="$(printf '%s' "$line" | awk -F' \\| ' '{print $1}')"
+                  right="$(printf '%s' "$line" | awk -F' \\| ' '{ if (NF>1) { $1=""; sub(/^ /,"",$0); print substr($0,2)} else print "" }')"
+
+                  code=""
+                  url=""
+
+                  # match patterns: [CODE] <URL>
+                  if printf '%s' "$left" | grep -qE '^\[[^]]+\] <[^>]+>$'; then
+                    code="$(printf '%s' "$left" | sed -E 's/^\[([^]]+)\].*$/\1/')"
+                    url="$(printf '%s' "$left" | sed -E 's/^\[[^]]+\] <([^>]+)>.*/\1/')"
+                  # fallback: if it's just <URL>
+                  elif printf '%s' "$left" | grep -qE '^<[^>]+>$'; then
+                    code=""
+                    url="$(printf '%s' "$left" | sed -E 's/^<([^>]+)>$/\1/')"
+                  else
+                    # no angle brackets; treat left as URL or path
+                    url="$left"
+                  fi
+
+                  # normalize file:// URIs to readable path
+                  url="$(printf '%s' "$url" | sed -E 's%^file:/+%%')"
+
+                  # Escape double quotes for CSV
+                  esc_code="$(printf '%s' "$code" | sed 's/"/""/g')"
+                  esc_url="$(printf '%s' "$url" | sed 's/"/""/g')"
+                  esc_msg="$(printf '%s' "$right" | sed 's/"/""/g')"
+
+                  # write CSV row
+                  printf '"%s","%s","%s","%s"\n' "$esc_code" "$esc_url" "$esc_msg" "$source_label" >> "$OUT"
+                done
+          }
+
+          # Parse broken report
+          parse_file "reports/lychee-broken-report.txt" "broken"
+          # Parse redirect report
+          parse_file "reports/lychee-redirect-report.txt" "redirect"
+
+          # If CSV only has header, add an INFO row
+          if [ "$(wc -l < "$OUT")" -eq 1 ]; then
+            echo '"INFO","No failures detected","No lychee failure lines were found in the reports.","info"' >> "$OUT"
+          fi
+
       - name: Append signature to reports
         run: |
           for f in reports/*.txt; do
             echo -e "\n---\n\n🙏 **Thanks,**\n\n**Kannan.N**\nSr Trainer\n[https://www.linkedin.com/in/iamnkannan](https://www.linkedin.com/in/iamnkannan)" >> "$f"
           done
+          # For CSV, add comments at the end
+          if [ -f reports/lychee-issues.csv ]; then
+            echo "" >> reports/lychee-issues.csv
+            echo "# ---" >> reports/lychee-issues.csv
+            echo "# Thanks, Kannan.N (Sr Trainer) - https://www.linkedin.com/in/iamnkannan" >> reports/lychee-issues.csv
+          fi
 
-      - name: Upload reports as artifact
+      - name: Upload reports as artifact (text + csv)
         uses: actions/upload-artifact@v4
         with:
           name: link-check-reports
-          path: reports/*.txt
+          path: |
+            reports/lychee-broken-report.txt
+            reports/lychee-redirect-report.txt
+            reports/lychee-issues.csv
