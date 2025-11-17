@@ -30,7 +30,6 @@ jobs:
           git checkout main
           if git merge --ff-only upstream/main; then
             echo "Fast-forwarded to upstream/main"
-            # push merged changes back to your fork using the default token
             git push origin HEAD:main || echo "Push skipped or failed (check permissions)"
           else
             echo "No fast-forward merge available. Continuing with current branch."
@@ -44,8 +43,8 @@ jobs:
         id: lychee-broken
         continue-on-error: true
         with:
-          # remove any '--output' from args when specifying 'output' here
-          args: --verbose --no-progress './**/*.md' --exclude-mail
+          # removed unsupported --exclude-mail flag
+          args: --verbose --no-progress './**/*.md'
           output: reports/lychee-broken-report.txt
           format: markdown
           fail: 'true'
@@ -58,7 +57,7 @@ jobs:
         id: lychee-redirects
         continue-on-error: true
         with:
-          args: --verbose --max-redirects 0 --no-progress './**/*.md' --exclude-mail
+          args: --verbose --max-redirects 0 --no-progress './**/*.md'
           output: reports/lychee-redirect-report.txt
           format: markdown
           fail: 'true'
